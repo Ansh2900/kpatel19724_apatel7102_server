@@ -12,6 +12,8 @@ import socketserver
 import sys
 import threading
 from datetime import datetime
+import time
+from collections import deque
 
 # A message line which has the exactly three parts  level, app name, message
 FIELD_SEPARATOR = "|"
@@ -66,6 +68,42 @@ class LogWriter:
             self.log_file.write(log_line + "\n")
             self.log_file.flush()
 
+# CLASS         : RateLimiter
+# DESCRIPTION   : sliding-window rate limiter for one client Allows at most
+#                 max_messages within any window of window_seconds
+#
+class RateLimiter:
+
+    #
+    # FUNCTION      : __init__
+    # DESCRIPTION   : Sets up an empty window of message times
+    # PARAMETERS    : max_messages int, window_seconds float
+    # RETURNS       : none
+    #
+    def __init__(self, max_messages, window_seconds):
+        self.max_messages = max_messages
+        self.window_seconds = window_seconds
+        self.message_times = deque()
+
+    #
+    # FUNCTION      : is_allowed
+    # DESCRIPTION   : Records a message attempt and says whether it is within
+    #                 the limit
+    # PARAMETERS    : none
+    # RETURNS       : bool  True if the message may be logged
+    #
+    def is_allowed(self):
+        now = time.monotonic()
+        window_start = now - self.window_seconds
+
+        while self.message_times and self.message_times[0] < window_start:
+            self.message_times.popleft()
+
+        if len(self.message_times) >= self.max_messages:
+            return False
+
+        self.message_times.append(now)
+        return True
 
 # CLASS         : LogClientHandler
 # DESCRIPTION   : Its own thread handles the client connection and apply the rate limiting and 
