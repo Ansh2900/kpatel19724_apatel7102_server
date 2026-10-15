@@ -118,8 +118,15 @@ class LogClientHandler(socketserver.StreamRequestHandler):
     # RETURNS       : none
     #
     def handle(self):
+        config = self.server.config
         client_ip, client_port = self.client_address[0], self.client_address[1]
+        rate_limiter = RateLimiter(config["rate_limit_messages"],
+                                   config["rate_limit_window_seconds"])
         for raw_line in self.rfile:
+            if not rate_limiter.is_allowed():
+                self.send_reply("RATE_LIMITED")
+                continue
+                
             line = raw_line.decode("utf-8").rstrip("\r\n")
             error_reason, level, app, message = self.parse_message(line)
             if error_reason:
