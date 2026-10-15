@@ -10,10 +10,62 @@
 import json
 import socketserver
 import sys
+import threading
+from datetime import datetime
 
 # A message line which has the exactly three parts  level, app name, message
 FIELD_SEPARATOR = "|"
 FIELD_COUNT = 3
+
+# CLASS         : LogWriter
+# DESCRIPTION   : Has the responsibilities for a single log file. Formats each entry to use the configured
+#                 template and appends it. A lock prevents simultaneous clients from interfering with each other's lines
+#
+class LogWriter:
+
+    #
+    # FUNCTION      : __init__
+    # DESCRIPTION   : Opens or creates the log file in append mode
+    # PARAMETERS    : log_file_path str 
+    #                 log_format str    
+    # RETURNS       : none
+    #
+    def __init__(self, log_file_path, log_format):
+        self.log_format = log_format
+        self.write_lock = threading.Lock()
+        self.log_file = open(log_file_path, "a", encoding="utf-8")
+
+    #
+    # FUNCTION      : format_entry
+    # DESCRIPTION   : Builds one log line from the configured template
+    # PARAMETERS    : level str, client_ip str, client_port int,
+    #                 app str, message str
+    # RETURNS       : str  the formatted log line
+    #
+    def format_entry(self, level, client_ip, client_port, app, message):
+        timestamp = datetime.now().astimezone().isoformat(timespec="milliseconds")
+        return self.log_format.format(
+            timestamp=timestamp,
+            level=level,
+            client_ip=client_ip,
+            client_port=client_port,
+            app=app,
+            message=message,
+        )
+
+    #
+    # FUNCTION      : write_entry
+    # DESCRIPTION   : formats one entry and adds it to the log file
+    # PARAMETERS    : level str, client_ip str, client_port int,
+    #                 app str, message str
+    # RETURNS       : none
+    #
+    def write_entry(self, level, client_ip, client_port, app, message):
+        log_line = self.format_entry(level, client_ip, client_port, app, message)
+        with self.write_lock:
+            self.log_file.write(log_line + "\n")
+            self.log_file.flush()
+
 
 # CLASS         : LogClientHandler
 # DESCRIPTION   : Its own thread handles the client connection and apply the rate limiting and 
@@ -28,13 +80,16 @@ class LogClientHandler(socketserver.StreamRequestHandler):
     # RETURNS       : none
     #
     def handle(self):
+        client_ip, client_port = self.client_address[0], self.client_address[1]
         for raw_line in self.rfile:
             line = raw_line.decode("utf-8").rstrip("\r\n")
             error_reason, level, app, message = self.parse_message(line)
             if error_reason:
                 self.send_reply("ERROR: " + error_reason)
                 continue
+            self.server.log_writer.write_entry(level, client_ip, client_port, app, message)
             self.send_reply("OK")
+
 #Added a function name parse message(), which divides each line on | into level , app name and messages .If the lines are without this structure can get the error message"
     # FUNCTION      : parse_message
     # DESCRIPTION   : splits a line into level, app name and message and
@@ -79,8 +134,9 @@ class LoggingServer(socketserver.ThreadingTCPServer):
     # PARAMETERS    : config (dict)
     # RETURNS       : none
     #
-    def __init__(self, config):
+    def __init__(self, config, log_writer):
         self.config = config
+        self.log_writer = log_writer
         super().__init__((config["host"], config["port"]), LogClientHandler)
 
 #
@@ -96,12 +152,13 @@ def main():
     try:
         with open(sys.argv[1], "r", encoding="utf-8") as config_file:
             config = json.load(config_file)
-            server = LoggingServer(config)
+            log_writer = LogWriter(config["log_file"], config["log_format"])
+            server = LoggingServer(config, log_writer)
     except (OSError, ValueError, KeyError) as startup_error:
         print("Startup error: " + str(startup_error), file=sys.stderr)
         return 1
 
-    print(f"Listening on {config['host']}:{config['port']}")
+    print(f"Listening on {config['host']}:{config['port']}, logging to {config['log_file']}")
     server.serve_forever()
     return 0
 
