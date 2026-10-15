@@ -35,7 +35,7 @@ class LogClientHandler(socketserver.StreamRequestHandler):
                 self.send_reply("ERROR: " + error_reason)
                 continue
             self.send_reply("OK")
-#
+
     # FUNCTION      : parse_message
     # DESCRIPTION   : splits a line into level, app name and message and
     #                 checks each part
