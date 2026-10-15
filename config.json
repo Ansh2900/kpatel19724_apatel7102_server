@@ -1,0 +1,9 @@
+{
+    "host": "0.0.0.0",
+    "port": 5000,
+    "log_file": "service.log",
+    "log_format": "{timestamp} {level} [{client_ip}:{client_port}] {app} - {message}",
+    "allowed_levels": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    "rate_limit_messages": 20,
+    "rate_limit_window_seconds": 5
+}
