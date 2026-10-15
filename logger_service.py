@@ -122,18 +122,23 @@ class LogClientHandler(socketserver.StreamRequestHandler):
         client_ip, client_port = self.client_address[0], self.client_address[1]
         rate_limiter = RateLimiter(config["rate_limit_messages"],
                                    config["rate_limit_window_seconds"])
-        for raw_line in self.rfile:
-            if not rate_limiter.is_allowed():
-                self.send_reply("RATE_LIMITED")
-                continue
-                
-            line = raw_line.decode("utf-8").rstrip("\r\n")
-            error_reason, level, app, message = self.parse_message(line)
-            if error_reason:
-                self.send_reply("ERROR: " + error_reason)
-                continue
-            self.server.log_writer.write_entry(level, client_ip, client_port, app, message)
-            self.send_reply("OK")
+        try: 
+            for raw_line in self.rfile:
+                if not rate_limiter.is_allowed():
+                    self.send_reply("RATE_LIMITED")
+                    continue
+
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                error_reason, level, app, message = self.parse_message(line)
+                if error_reason:
+                    self.send_reply("ERROR: " + error_reason)
+                    continue
+
+                self.server.log_writer.write_entry(level, client_ip, client_port, app, message)
+                self.send_reply("OK")
+        
+        except (ConnectionResetError, BrokenPipeError):
+            pass
 
 #Added a function name parse message(), which divides each line on | into level , app name and messages .If the lines are without this structure can get the error message"
     # FUNCTION      : parse_message
