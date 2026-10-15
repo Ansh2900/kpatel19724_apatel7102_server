@@ -106,6 +106,14 @@ class LogClientHandler(socketserver.StreamRequestHandler):
         level = fields[0].strip()
         app = fields[1].strip()
         message = fields[2].strip()
+
+        if level not in self.server.config["allowed_levels"]:
+            return "unknown level '" + level + "'", None, None, None
+        if not app:
+            return "app name is empty", None, None, None
+        if not message:
+            return "message is empty", None, None, None
+
         return None, level, app, message
 
     #
@@ -153,7 +161,7 @@ def main():
         with open(sys.argv[1], "r", encoding="utf-8") as config_file:
             config = json.load(config_file)
             log_writer = LogWriter(config["log_file"], config["log_format"])
-            log_writer.format_entry("INFO", "0.0.0.0", 0, "app", "test")    // test the log format string
+            log_writer.format_entry("INFO", "0.0.0.0", 0, "app", "test")    # test the log format string
             server = LoggingServer(config, log_writer)
     except (OSError, ValueError, KeyError) as startup_error:
         print("Startup error: " + str(startup_error), file=sys.stderr)
