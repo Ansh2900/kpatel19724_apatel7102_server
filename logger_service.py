@@ -11,6 +11,9 @@ import json
 import socketserver
 import sys
 
+# A message line which has the exactly three parts  level, app name, message
+FIELD_SEPARATOR = "|"
+FIELD_COUNT = 3
 
 # CLASS         : LogClientHandler
 # DESCRIPTION   : Its own thread handles the client connection and apply the rate limiting and 
@@ -26,7 +29,29 @@ class LogClientHandler(socketserver.StreamRequestHandler):
     #
     def handle(self):
         for raw_line in self.rfile:
+            line = raw_line.decode("utf-8").rstrip("\r\n")
+            error_reason, level, app, message = self.parse_message(line)
+            if error_reason:
+                self.send_reply("ERROR: " + error_reason)
+                continue
             self.send_reply("OK")
+#
+    # FUNCTION      : parse_message
+    # DESCRIPTION   : splits a line into level, app name and message and
+    #                 checks each part
+    # PARAMETERS    : line (str) 
+    # RETURNS       : error_reason, level, app, message
+    #                 
+    #
+    def parse_message(self, line):
+        fields = line.split(FIELD_SEPARATOR, FIELD_COUNT - 1)
+        if len(fields) != FIELD_COUNT:
+            return "expected LEVEL|app_name|message", None, None, None
+
+        level = fields[0].strip()
+        app = fields[1].strip()
+        message = fields[2].strip()
+        return None, level, app, message
 
     #
     # FUNCTION      : send_reply
