@@ -64,8 +64,10 @@ class LogWriter:
     #
     def write_entry(self, level, client_ip, client_port, app, message):
         log_line = self.format_entry(level, client_ip, client_port, app, message)
+        # Lock so lines from simultaneous clients are never mixed together
         with self.write_lock:
             self.log_file.write(log_line + "\n")
+            # Flush the file to ensure that the log entry is written to disk immediately
             self.log_file.flush()
 
 # CLASS         : RateLimiter
@@ -93,12 +95,15 @@ class RateLimiter:
     # RETURNS       : bool  True if the message may be logged
     #
     def is_allowed(self):
+        # monotonic() is not affected by changes to the system clock
         now = time.monotonic()
         window_start = now - self.window_seconds
 
+        # drop the message times that are older than the windows
         while self.message_times and self.message_times[0] < window_start:
             self.message_times.popleft()
 
+        # so many messages in the window, so refuse this one
         if len(self.message_times) >= self.max_messages:
             return False
 
@@ -119,15 +124,19 @@ class LogClientHandler(socketserver.StreamRequestHandler):
     #
     def handle(self):
         config = self.server.config
+        # client IP and port identify it in every log line
         client_ip, client_port = self.client_address[0], self.client_address[1]
+        # each connections get its own limiter so one noisy client does not affect other clients
         rate_limiter = RateLimiter(config["rate_limit_messages"],
                                    config["rate_limit_window_seconds"])
         try: 
             for raw_line in self.rfile:
+                # it will check the rate limit first, limited messages are not logged
                 if not rate_limiter.is_allowed():
                     self.send_reply("RATE_LIMITED")
                     continue
 
+                # errors="replace" stops invalid bytes from crashing this thread
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
                 error_reason, level, app, message = self.parse_message(line)
                 if error_reason:
@@ -138,6 +147,7 @@ class LogClientHandler(socketserver.StreamRequestHandler):
                 self.send_reply("OK")
         
         except (ConnectionResetError, BrokenPipeError):
+            # client disconnected suddenly, so the thread just ends
             pass
 
 #Added a function name parse message(), which divides each line on | into level , app name and messages .If the lines are without this structure can get the error message"
@@ -149,6 +159,7 @@ class LogClientHandler(socketserver.StreamRequestHandler):
     #                 
     #
     def parse_message(self, line):
+        # it split into at most 3 parts so a "|" inside the message is kept
         fields = line.split(FIELD_SEPARATOR, FIELD_COUNT - 1)
         if len(fields) != FIELD_COUNT:
             return "expected LEVEL|app_name|message", None, None, None
@@ -183,7 +194,9 @@ class LogClientHandler(socketserver.StreamRequestHandler):
 #                 clients can log at the same time
 #
 class LoggingServer(socketserver.ThreadingTCPServer):
+    # it will stop the client threads when the service stops
     daemon_threads = True
+    # it allows restarting the service on the same port straight away
     allow_reuse_address = True
 
     #
